@@ -7,8 +7,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
+/** Общий интерфейс «мозга»: Claude или Gemini. */
+interface Mind {
+    fun ask(userText: String, cb: Brain.Callback)
+    fun cancel()
+    fun shutdown()
+}
+
 /** «Мозг» Юки: Claude API + цикл использования инструментов. */
-class Brain(private val prefs: Prefs, private val tools: PhoneTools) {
+class Brain(private val prefs: Prefs, private val tools: PhoneTools) : Mind {
 
     interface Callback {
         /** Промежуточное состояние (думает, смотрит на экран…). */
@@ -23,7 +30,7 @@ class Brain(private val prefs: Prefs, private val tools: PhoneTools) {
     private val history = ArrayList<JSONObject>()
     @Volatile private var generation = 0
 
-    fun ask(userText: String, cb: Callback) {
+    override fun ask(userText: String, cb: Callback) {
         val gen = ++generation
         exec.execute {
             trimHistory()
@@ -38,11 +45,11 @@ class Brain(private val prefs: Prefs, private val tools: PhoneTools) {
     }
 
     /** Отменить текущую мысль (ответ уже не придёт). */
-    fun cancel() { generation++ }
+    override fun cancel() { generation++ }
 
     fun reset() { exec.execute { history.clear() } }
 
-    fun shutdown() { generation++; exec.shutdownNow() }
+    override fun shutdown() { generation++; exec.shutdownNow() }
 
     private fun rollback(mark: Int) {
         while (history.size > mark) history.removeAt(history.size - 1)
@@ -105,17 +112,7 @@ class Brain(private val prefs: Prefs, private val tools: PhoneTools) {
         cb.onReply(Emotion.SAD, "…Я запуталась, слишком много шагов. Давай попробуем по частям?")
     }
 
-    private fun parseReply(raw: String): Pair<Emotion, String> {
-        var t = raw.trim()
-        var emo = Emotion.NEUTRAL
-        val m = Regex("^\\[(\\w+)]\\s*").find(t)
-        if (m != null) {
-            emo = Emotion.parse(m.groupValues[1])
-            t = t.substring(m.range.last + 1)
-        }
-        t = t.replace(Regex("\\[(\\w+)]"), "").replace(Regex("[*_#`]"), "").trim()
-        return emo to t
-    }
+    private fun parseReply(raw: String): Pair<Emotion, String> = parse(raw)
 
     /** Держим последние ~10 просьб. Режем только по границе «новая просьба пользователя». */
     private fun trimHistory() {
@@ -196,6 +193,19 @@ class Brain(private val prefs: Prefs, private val tools: PhoneTools) {
     }
 
     companion object {
+        /** Достаёт тег эмоции [happy] из начала ответа и чистит текст для озвучки. */
+        fun parse(raw: String): Pair<Emotion, String> {
+            var t = raw.trim()
+            var emo = Emotion.NEUTRAL
+            val m = Regex("^\\[(\\w+)]\\s*").find(t)
+            if (m != null) {
+                emo = Emotion.parse(m.groupValues[1])
+                t = t.substring(m.range.last + 1)
+            }
+            t = t.replace(Regex("\\[(\\w+)]"), "").replace(Regex("[*_#`]"), "").trim()
+            return emo to t
+        }
+
         val SYSTEM_PROMPT = """
 Ты — Юки, голосовой ИИ-ассистент, который живёт на экране Android-телефона хозяина в виде аниме-девушки с белыми волосами и заколкой-снежинкой.
 

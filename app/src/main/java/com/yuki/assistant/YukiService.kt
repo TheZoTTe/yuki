@@ -31,7 +31,7 @@ class YukiService : Service(), VoiceController.Listener, Brain.Callback {
     private lateinit var overlay: OverlayController
     private lateinit var voice: VoiceController
     private lateinit var speaker: Speaker
-    private lateinit var brain: Brain
+    private lateinit var brain: Mind
     private val h = Handler(Looper.getMainLooper())
 
     private var thinking = false
@@ -47,7 +47,7 @@ class YukiService : Service(), VoiceController.Listener, Brain.Callback {
         startInForeground()
 
         val tools = PhoneTools(this, prefs) { visible -> setOverlayVisibleSync(visible) }
-        brain = Brain(prefs, tools)
+        brain = if (prefs.useGemini) GeminiBrain(prefs, tools) else Brain(prefs, tools)
         overlay = OverlayController(this, prefs, onTap = { talkNow() }, onLongPress = { hush() })
         overlay.show()
         speaker = Speaker(this, prefs).also { sp ->
@@ -80,7 +80,7 @@ class YukiService : Service(), VoiceController.Listener, Brain.Callback {
     // ---------- Сценарий ----------
 
     private fun greet() {
-        if (prefs.apiKey.isBlank()) {
+        if (prefs.activeKey.isBlank()) {
             overlay.avatar.emotion = Emotion.SAD
             reply("…Мне нужен ключ API, чтобы думать. Открой настройки, пожалуйста.", false)
             return
@@ -150,7 +150,7 @@ class YukiService : Service(), VoiceController.Listener, Brain.Callback {
         voice.stop()
         overlay.busy = true
         overlay.say("«$text»", 0)
-        if (prefs.apiKey.isBlank()) {
+        if (prefs.activeKey.isBlank()) {
             overlay.avatar.emotion = Emotion.SAD
             reply("…Без ключа API я не могу думать. Впиши его в настройках.", false)
             return

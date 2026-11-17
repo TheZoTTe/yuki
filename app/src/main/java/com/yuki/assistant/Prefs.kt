@@ -10,6 +10,24 @@ class Prefs(ctx: Context) {
         get() = p.getString("apiKey", "") ?: ""
         set(v) = p.edit().putString("apiKey", v.trim()).apply()
 
+    /** "claude" или "gemini". */
+    var provider: String
+        get() = p.getString("provider", "claude") ?: "claude"
+        set(v) = p.edit().putString("provider", v).apply()
+
+    var geminiKey: String
+        get() = p.getString("geminiKey", "") ?: ""
+        set(v) = p.edit().putString("geminiKey", v.trim()).apply()
+
+    var geminiModel: String
+        get() = p.getString("geminiModel", DEFAULT_GEMINI_MODEL) ?: DEFAULT_GEMINI_MODEL
+        set(v) = p.edit().putString("geminiModel", v.trim().ifEmpty { DEFAULT_GEMINI_MODEL }).apply()
+
+    val useGemini: Boolean get() = provider == "gemini"
+
+    /** Ключ выбранного «мозга». */
+    val activeKey: String get() = if (useGemini) geminiKey else apiKey
+
     var model: String
         get() = p.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL
         set(v) = p.edit().putString("model", v.trim().ifEmpty { DEFAULT_MODEL }).apply()
@@ -42,6 +60,7 @@ class Prefs(ctx: Context) {
 
     companion object {
         const val DEFAULT_MODEL = "claude-sonnet-5-5"
+        const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
         const val DEFAULT_WAKE = "юки,юкки,юка,юкий"
         const val DEFAULT_BLOCKED =
             "ru.sberbankmobile,com.idamob.tinkoff.android,ru.vtb24.mobilebanking.android," +

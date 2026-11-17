@@ -15,10 +15,13 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -32,6 +35,10 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var startBtn: Button
     private lateinit var keyEdit: EditText
+    private lateinit var geminiKeyEdit: EditText
+    private lateinit var geminiModelEdit: EditText
+    private lateinit var providerGroup: RadioGroup
+    private var claudeRadioId = 0
     private lateinit var modelEdit: EditText
     private lateinit var wakeEdit: EditText
     private lateinit var pitchEdit: EditText
@@ -91,14 +98,35 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
 
-        header("2. Мозг — Claude API")
-        keyEdit = field("Ключ API (начинается с sk-ant-)", prefs.apiKey,
+        header("2. Мозг")
+        providerGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val rbClaude = RadioButton(this).apply {
+            id = View.generateViewId(); text = "Claude — умнее, платно (есть стартовый бонус)"; textSize = 15f; setTextColor(ink)
+        }
+        val rbGemini = RadioButton(this).apply {
+            id = View.generateViewId(); text = "Gemini — бесплатно, но мало запросов в день"; textSize = 15f; setTextColor(ink)
+        }
+        claudeRadioId = rbClaude.id
+        providerGroup.addView(rbClaude)
+        providerGroup.addView(rbGemini)
+        providerGroup.check(if (prefs.useGemini) rbGemini.id else rbClaude.id)
+        col.addView(providerGroup, lpTop(6))
+
+        keyEdit = field("Ключ Claude API (начинается с sk-ant-)", prefs.apiKey,
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
-        button("Где взять ключ") {
+        button("Где взять ключ Claude") {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.anthropic.com/")))
         }
-        modelEdit = field("Модель", prefs.model, InputType.TYPE_CLASS_TEXT)
+        modelEdit = field("Модель Claude", prefs.model, InputType.TYPE_CLASS_TEXT)
         note("claude-sonnet-5-5 — умнее, лучше справляется с телефоном. claude-haiku-5-5 — быстрее и дешевле.")
+
+        geminiKeyEdit = field("Ключ Gemini (начинается с AIza…)", prefs.geminiKey,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        button("Где взять ключ Gemini (бесплатно)") {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+        }
+        geminiModelEdit = field("Модель Gemini", prefs.geminiModel, InputType.TYPE_CLASS_TEXT)
+        note("gemini-flash-latest — всегда свежая быстрая модель. Если выбор мозга поменял — перезапусти Юки.")
 
         header("3. Характер и поведение")
         wakeEdit = field("Как её звать (слова через запятую)", prefs.wakeWords, InputType.TYPE_CLASS_TEXT)
@@ -135,6 +163,9 @@ class MainActivity : Activity() {
     private fun save() {
         prefs.apiKey = keyEdit.text.toString()
         prefs.model = modelEdit.text.toString()
+        prefs.geminiKey = geminiKeyEdit.text.toString()
+        prefs.geminiModel = geminiModelEdit.text.toString()
+        prefs.provider = if (providerGroup.checkedRadioButtonId == claudeRadioId) "claude" else "gemini"
         prefs.wakeWords = wakeEdit.text.toString()
         pitchEdit.text.toString().replace(',', '.').toFloatOrNull()?.let { prefs.pitch = it }
         prefs.blocked = blockedEdit.text.toString()
@@ -150,7 +181,7 @@ class MainActivity : Activity() {
             save()
             if (!Settings.canDrawOverlays(this)) { toast("Сначала разреши «Поверх других окон»"); return }
             if (!granted(Manifest.permission.RECORD_AUDIO)) { toast("Нужен доступ к микрофону"); askRuntimePermissions(); return }
-            if (prefs.apiKey.isBlank()) toast("Без ключа API она сможет только смущённо молчать")
+            if (prefs.activeKey.isBlank()) toast("Без ключа API она сможет только смущённо молчать")
             startForegroundService(svc)
         }
         Handler(Looper.getMainLooper()).postDelayed({ refresh() }, 600)
@@ -179,7 +210,7 @@ class MainActivity : Activity() {
             append(mark(Settings.canDrawOverlays(this@MainActivity))).append("  Поверх окон\n")
             append(mark(granted(Manifest.permission.RECORD_AUDIO))).append("  Микрофон\n")
             append(mark(a11yEnabled())).append("  Спецвозможности (руки и глаза)\n")
-            append(mark(prefs.apiKey.isNotBlank())).append("  Ключ API\n")
+            append(mark(prefs.activeKey.isNotBlank())).append("  Ключ API (").append(if (prefs.useGemini) "Gemini" else "Claude").append(")\n")
             append(if (YukiService.running) "🟣  Юки на экране" else "⚪  Юки спит")
         }
         startBtn.text = if (YukiService.running) "■  Убрать Юки" else "▶  Запустить Юки"
