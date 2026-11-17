@@ -10,7 +10,7 @@ import java.util.concurrent.Executors
 /** «Мозг» на Google Gemini — бесплатный тариф AI Studio, с лимитом запросов. */
 class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Mind {
 
-    class ApiError(val code: Int, msg: String) : Exception(msg)
+    class ApiError(val code: Int, msg: String, val details: String = "") : Exception(msg)
 
     companion object {
         const val FALLBACK_MODEL = "gemini-flash-lite-latest"
@@ -66,6 +66,8 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
         JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text)))
 
     private fun run(userText: String, cb: Brain.Callback, gen: Int, mark: Int) {
+        minuteWaits = 0
+        waitHook = { if (gen == generation) cb.onStatus(Emotion.SLEEPY, "…Google просит подождать минутку. Жду.") }
         history.add(userMsg(tools.deviceContext() + "\n" + userText))
 
         for (step in 0 until 20) {
@@ -161,12 +163,37 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
                 return callOnce(m)
             } catch (e: ApiError) {
                 last = e
-                if (e.code != 500 && e.code != 503 && e.code != 429) throw e
-                if (e.code == 429 && m != main) throw e
+                if (e.code == 429) {
+                    // Дневной лимит — ждать бессмысленно. Минутный — подождём, сколько просит Google.
+                    if (isDaily(e)) throw e
+                    if (minuteWaits >= 2) throw e
+                    minuteWaits++
+                    waitHook?.invoke()
+                    Thread.sleep(retryDelayMs(e))
+                    continue
+                }
+                if (e.code != 500 && e.code != 503) throw e
                 Thread.sleep(1500L * (i + 1))
             }
         }
         throw last ?: IOException("нет ответа")
+    }
+
+    private var minuteWaits = 0
+    /** Показать «жду лимит» (ставится на время хода). */
+    @Volatile private var waitHook: (() -> Unit)? = null
+
+    private fun isDaily(e: ApiError): Boolean {
+        val m = (e.message ?: "") + " " + e.details
+        return m.contains("PerDay", true) || m.contains("per day", true) || m.contains("daily", true)
+    }
+
+    private fun retryDelayMs(e: ApiError): Long {
+        val m = (e.message ?: "") + " " + e.details
+        val sec = Regex("retry in ([0-9.]+)s", RegexOption.IGNORE_CASE).find(m)?.groupValues?.get(1)?.toDoubleOrNull()
+            ?: Regex("\"retryDelay\"\\s*:\\s*\"([0-9.]+)s\"").find(m)?.groupValues?.get(1)?.toDoubleOrNull()
+            ?: 20.0
+        return ((sec + 1.0) * 1000).toLong().coerceIn(3000L, 60000L)
     }
 
     private fun callOnce(model: String): JSONObject {
@@ -191,7 +218,7 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
             val txt = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             if (code !in 200..299) {
                 val msg = try { JSONObject(txt).getJSONObject("error").optString("message") } catch (_: Exception) { txt.take(200) }
-                throw ApiError(code, msg)
+                throw ApiError(code, msg, txt.take(4000))
             }
             return JSONObject(txt)
         } finally {
@@ -206,7 +233,8 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
         return when {
             m.contains("API key", true) -> "…Ключ Gemini не подходит. Проверь его в настройках."
             m.contains("location", true) || m.contains("region", true) -> "…Google говорит, что Gemini недоступен в твоём регионе."
-            e.code == 429 -> "…Бесплатные запросы на сегодня закончились. Попробуй позже или переключись на Claude."
+            e.code == 429 && isDaily(e) -> "…Бесплатные запросы Gemini на сегодня закончились. Завтра снова смогу, или переключи меня на Claude."
+            e.code == 429 -> "…Google не даёт столько запросов подряд. Подожди минутку и попроси ещё раз."
             e.code == 404 -> "…Не знаю такую модель: «${prefs.geminiModel}». Поправь название в настройках."
             e.code == 500 || e.code == 503 -> "…Сервер Google перегружен (${e.code}): ${m.take(100)}"
             else -> "…Ошибка ${e.code}: ${m.take(120)}"
