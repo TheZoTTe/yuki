@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Юки</string>
+    <string name="a11y_label">Юки — управление телефоном</string>
+    <string name="a11y_desc">Позволяет Юки видеть, что на экране, нажимать кнопки, листать и вводить текст по твоей голосовой просьбе. Приложения из списка приватных она не читает.</string>
+</resources>
