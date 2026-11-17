@@ -13,11 +13,11 @@ fi
 echo
 echo "=== 2/4 Ключи ==="
 read -r -p "Вставь ключ Gemini (AIza...): " GEMINI_KEY
-read -r -p "Вставь ключ Pexels (pexels.com/api): " PEXELS_KEY
+read -r -p "Вставь ключ Pixabay (pixabay.com/api/docs): " PIXABAY_KEY
 
 echo
 echo "=== 3/4 Ставлю MoneyPrinterTurbo внутри Ubuntu (15-30 минут, ~2 ГБ) ==="
-proot-distro login ubuntu --env GEMINI_KEY="$GEMINI_KEY" --env PEXELS_KEY="$PEXELS_KEY" -- bash -s <<'INNER'
+proot-distro login ubuntu --env GEMINI_KEY="$GEMINI_KEY" --env PIXABAY_KEY="$PIXABAY_KEY" -- bash -s <<'INNER'
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -34,7 +34,8 @@ uv sync --frozen
 sed -i "s|^llm_provider = .*|llm_provider = \"gemini\"|" config.toml
 sed -i "s|^gemini_api_key = .*|gemini_api_key = \"$GEMINI_KEY\"|" config.toml
 sed -i "s|^gemini_model_name = .*|gemini_model_name = \"gemini-flash-latest\"|" config.toml
-sed -i "s|^pexels_api_keys = .*|pexels_api_keys = [\"$PEXELS_KEY\"]|" config.toml
+sed -i "s|^video_source = .*|video_source = \"pixabay\"|" config.toml
+sed -i "s|^pixabay_api_keys = .*|pixabay_api_keys = [\"$PIXABAY_KEY\"]|" config.toml
 sed -i "s|^subtitle_provider = .*|subtitle_provider = \"edge\"|" config.toml
 echo "MoneyPrinterTurbo установлен."
 INNER
