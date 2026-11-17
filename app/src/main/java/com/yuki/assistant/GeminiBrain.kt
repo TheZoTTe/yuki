@@ -12,6 +12,10 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
 
     class ApiError(val code: Int, msg: String) : Exception(msg)
 
+    companion object {
+        const val FALLBACK_MODEL = "gemini-flash-lite-latest"
+    }
+
     private val exec = Executors.newSingleThreadExecutor()
     private val history = ArrayList<JSONObject>()
     @Volatile private var generation = 0
@@ -147,8 +151,25 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
         }
     }
 
+    /** Повторяет запрос при перегрузке Google и при необходимости берёт лёгкую запасную модель. */
     private fun call(): JSONObject {
-        val model = prefs.geminiModel.ifBlank { Prefs.DEFAULT_GEMINI_MODEL }
+        val main = prefs.geminiModel.ifBlank { Prefs.DEFAULT_GEMINI_MODEL }
+        val models = listOf(main, main, main, FALLBACK_MODEL).let { if (main == FALLBACK_MODEL) it.dropLast(1) else it }
+        var last: Exception? = null
+        for ((i, m) in models.withIndex()) {
+            try {
+                return callOnce(m)
+            } catch (e: ApiError) {
+                last = e
+                if (e.code != 500 && e.code != 503 && e.code != 429) throw e
+                if (e.code == 429 && m != main) throw e
+                Thread.sleep(1500L * (i + 1))
+            }
+        }
+        throw last ?: IOException("нет ответа")
+    }
+
+    private fun callOnce(model: String): JSONObject {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", Brain.SYSTEM_PROMPT))))
             .put("contents", JSONArray(history))
@@ -187,7 +208,7 @@ class GeminiBrain(private val prefs: Prefs, private val tools: PhoneTools) : Min
             m.contains("location", true) || m.contains("region", true) -> "…Google говорит, что Gemini недоступен в твоём регионе."
             e.code == 429 -> "…Бесплатные запросы на сегодня закончились. Попробуй позже или переключись на Claude."
             e.code == 404 -> "…Не знаю такую модель: «${prefs.geminiModel}». Поправь название в настройках."
-            e.code == 500 || e.code == 503 -> "…Сервер Google сейчас перегружен. Попробуй чуть позже."
+            e.code == 500 || e.code == 503 -> "…Сервер Google перегружен (${e.code}): ${m.take(100)}"
             else -> "…Ошибка ${e.code}: ${m.take(120)}"
         }
     }
